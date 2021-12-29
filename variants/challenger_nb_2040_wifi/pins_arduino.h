@@ -1,27 +1,25 @@
 #pragma once
 
-#define PINS_COUNT          (28u)
-#define NUM_DIGITAL_PINS    (28u)
+#include <ChallengerWiFi.h>
+
+#define PINS_COUNT          (24u)
+#define NUM_DIGITAL_PINS    (24u)
 #define NUM_ANALOG_INPUTS   (4u)
 #define NUM_ANALOG_OUTPUTS  (0u)
 #define ADC_RESOLUTION      (12u)
 
 // LEDs
-#define PIN_LED             (19u)
+#define PIN_LED             (12u)
 
-// Serial1 (User serial port)
+// Serial
 #define PIN_SERIAL1_TX      (16u)
 #define PIN_SERIAL1_RX      (17u)
 
-// Serial2, connected to SARA-R4XX modem
+// Connected to ESP8285
 #define PIN_SERIAL2_TX      (4u)
 #define PIN_SERIAL2_RX      (5u)
-#define PIN_SERIAL2_CTS     (6u)
-#define PIN_SERIAL2_RTS     (7u)
-#define PIN_SARA_ON         (13u)
-#define PIN_SARA_RST        (14u)
-#define PIN_SARA_PWR        (15u)
-#define SARA_SERIAL_PORT    Serial2
+#define PIN_ESP8285_RST     (19u)
+#define PIN_ESP8285_MODE    (13u)
 
 // SPI
 #define PIN_SPI0_MISO       (24u)
@@ -48,6 +46,7 @@
 #define WIRE_HOWMANY        (1u)
 
 #define LED_BUILTIN         PIN_LED
+#define NEOPIXEL            (11u)
 
 static const uint8_t D0 =   (16u);
 static const uint8_t D1 =   (17u);
@@ -58,19 +57,19 @@ static const uint8_t D5 =   (2u);
 static const uint8_t D6 =   (3u);
 static const uint8_t D7 =   (0u);
 static const uint8_t D8 =   (1u);
-static const uint8_t D9 =   (12u);
-static const uint8_t D10 =  (11u);
-static const uint8_t D11 =  (10u);
+static const uint8_t D9 =   (6u);
+static const uint8_t D10 =  (7u);
+static const uint8_t D11 =  (8u);
 static const uint8_t D12 =  (9u);
-static const uint8_t D13 =  (8u);
-static const uint8_t D14 =  (13u);
-static const uint8_t D15 =  (14u);
-static const uint8_t D16 =  (15u);
-static const uint8_t D17 =  (19u);
+static const uint8_t D13 = (10u);
+static const uint8_t D14 = (14u);
+static const uint8_t D15 = (15u);
+static const uint8_t D16 = (18u);
+static const uint8_t D17 = (20u);
 
-static const uint8_t A0 =   (29u);
-static const uint8_t A1 =   (28u);
-static const uint8_t A2 =   (27u);
-static const uint8_t A3 =   (26u);
-static const uint8_t A4 =   (25u);
-static const uint8_t A5 =   (21u);
+static const uint8_t A0 = (26u);
+static const uint8_t A1 = (27u);
+static const uint8_t A2 = (28u);
+static const uint8_t A3 = (29u);
+static const uint8_t A4 = (25u);
+static const uint8_t A5 = (21u);

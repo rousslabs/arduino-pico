@@ -72,36 +72,72 @@ SerialUART::SerialUART(uart_inst_t *uart, pin_size_t tx, pin_size_t rx) {
     mutex_init(&_mutex);
 }
 
+static void _uart0IRQ();
+static void _uart1IRQ();
+
 void SerialUART::begin(unsigned long baud, uint16_t config) {
     _baud = baud;
     uart_init(_uart, baud);
     int bits, stop;
     uart_parity_t parity;
     switch (config & SERIAL_PARITY_MASK) {
-    case SERIAL_PARITY_EVEN: parity = UART_PARITY_EVEN; break;
-    case SERIAL_PARITY_ODD: parity = UART_PARITY_ODD; break;
-    default: parity = UART_PARITY_NONE; break;
+    case SERIAL_PARITY_EVEN:
+        parity = UART_PARITY_EVEN;
+        break;
+    case SERIAL_PARITY_ODD:
+        parity = UART_PARITY_ODD;
+        break;
+    default:
+        parity = UART_PARITY_NONE;
+        break;
     }
     switch (config & SERIAL_STOP_BIT_MASK) {
-    case SERIAL_STOP_BIT_1: stop = 1; break;
-    default: stop = 2; break;
+    case SERIAL_STOP_BIT_1:
+        stop = 1;
+        break;
+    default:
+        stop = 2;
+        break;
     }
     switch (config & SERIAL_DATA_MASK) {
-    case SERIAL_DATA_5: bits = 5; break;
-    case SERIAL_DATA_6: bits = 6; break;
-    case SERIAL_DATA_7: bits = 7; break;
-    default: bits = 8; break;
+    case SERIAL_DATA_5:
+        bits = 5;
+        break;
+    case SERIAL_DATA_6:
+        bits = 6;
+        break;
+    case SERIAL_DATA_7:
+        bits = 7;
+        break;
+    default:
+        bits = 8;
+        break;
     }
     uart_set_format(_uart, bits, stop, parity);
     gpio_set_function(_tx, GPIO_FUNC_UART);
     gpio_set_function(_rx, GPIO_FUNC_UART);
+    _writer = 0;
+    _reader = 0;
+
+    if (_uart == uart0) {
+        irq_set_exclusive_handler(UART0_IRQ, _uart0IRQ);
+        irq_set_enabled(UART0_IRQ, true);
+    } else {
+        irq_set_exclusive_handler(UART1_IRQ, _uart1IRQ);
+        irq_set_enabled(UART1_IRQ, true);
+    }
+    uart_get_hw(_uart)->imsc |= UART_UARTIMSC_RXIM_BITS | UART_UARTIMSC_RTIM_BITS;
     _running = true;
-    _peek = -1;
 }
 
 void SerialUART::end() {
     if (!_running) {
         return;
+    }
+    if (_uart == uart0) {
+        irq_set_enabled(UART0_IRQ, false);
+    } else {
+        irq_set_enabled(UART1_IRQ, false);
     }
     uart_deinit(_uart);
     _running = false;
@@ -112,15 +148,16 @@ int SerialUART::peek() {
     if (!_running || !m) {
         return -1;
     }
-    if (_peek >= 0) {
-        return _peek;
+    uint32_t start = millis();
+    uint32_t now = millis();
+    while ((now - start) < _timeout) {
+        if (_writer != _reader) {
+            return _queue[_reader];
+        }
+        delay(1);
+        now = millis();
     }
-    if (uart_is_readable_within_us(_uart, _timeout * 1000)) {
-        _peek = uart_getc(_uart);
-    } else {
-        _peek = -1; // Timeout
-    }
-    return _peek;
+    return -1; // Nothing available before timeout
 }
 
 int SerialUART::read() {
@@ -128,16 +165,18 @@ int SerialUART::read() {
     if (!_running || !m) {
         return -1;
     }
-    if (_peek >= 0) {
-        int ret = _peek;
-        _peek = -1;
-        return ret;
+    uint32_t start = millis();
+    uint32_t now = millis();
+    while ((now - start) < _timeout) {
+        if (_writer != _reader) {
+            auto ret = _queue[_reader];
+            _reader = (_reader + 1) % sizeof(_queue);
+            return ret;
+        }
+        delay(1);
+        now = millis();
     }
-    if (uart_is_readable_within_us(_uart, _timeout * 1000)) {
-        return uart_getc(_uart);
-    } else {
-        return -1; // Timeout
-    }
+    return -1; // Timeout
 }
 
 int SerialUART::available() {
@@ -145,7 +184,7 @@ int SerialUART::available() {
     if (!_running || !m) {
         return 0;
     }
-    return (uart_is_readable(_uart)) ? 1 : 0;
+    return (_writer - _reader) % sizeof(_queue);
 }
 
 int SerialUART::availableForWrite() {
@@ -204,4 +243,22 @@ void arduino::serialEvent2Run(void) {
     if (serialEvent2 && Serial2.available()) {
         serialEvent2();
     }
+}
+
+// IRQ handler, called when FIFO > 1/4 full or when it had held unread data for >32 bit times
+void __not_in_flash_func(SerialUART::_handleIRQ)() {
+    uart_get_hw(_uart)->icr |= UART_UARTICR_RTIC_BITS | UART_UARTICR_RXIC_BITS;
+    while ((uart_is_readable(_uart)) && ((_writer + 1) % sizeof(_queue) != _reader)) {
+        _queue[_writer] = uart_getc(_uart);
+        asm volatile("" ::: "memory"); // Ensure the queue is written before the written count advances
+        _writer = (_writer + 1) % sizeof(_queue);
+    }
+}
+
+static void __not_in_flash_func(_uart0IRQ)() {
+    Serial1._handleIRQ();
+}
+
+static void __not_in_flash_func(_uart1IRQ)() {
+    Serial2._handleIRQ();
 }
