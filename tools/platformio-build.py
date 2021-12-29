@@ -19,7 +19,8 @@ env = DefaultEnvironment()
 platform = env.PioPlatform()
 board = env.BoardConfig()
 upload_protocol = env.subst("$UPLOAD_PROTOCOL") or "picotool"
-ram_size = board.get("upload.maximum_ram_size")
+#ram_size = board.get("upload.maximum_ram_size")
+ram_size = 256 * 1024 # not the 264K, which is 256K SRAM + 2*4K SCRATCH(X/Y). 
 
 FRAMEWORK_DIR = platform.get_package_dir("framework-arduinopico")
 assert os.path.isdir(FRAMEWORK_DIR)
@@ -163,10 +164,15 @@ configure_usb_flags(cpp_defines)
 
 # info about the filesystem is already parsed by the platform's main.py 
 # script. We can just use the info here
- 
+# possible options: default, ram, flash
+# flash is usefull for debugging and the only currently working one for debugging.
+ldscript_style = board.get("build.ldscript_style", "default")
+linkerscript_name = "memmap_more_sram_only.ld" if ldscript_style == "ram" else "memmap_flash_only.ld" if ldscript_style == "flash" else "memmap_default.ld"
+print("Used linkerscript: %s" %  linkerscript_name)
+
 linkerscript_cmd = env.Command(
-    os.path.join("$BUILD_DIR", "memmap_default.ld"),  # $TARGET
-    os.path.join(FRAMEWORK_DIR, "lib", "memmap_default.ld"),  # $SOURCE
+    os.path.join("$BUILD_DIR", linkerscript_name),  # $TARGET
+    os.path.join(FRAMEWORK_DIR, "lib", linkerscript_name),  # $SOURCE
     env.VerboseAction(" ".join([
         '"$PYTHONEXE" "%s"' % os.path.join(
             FRAMEWORK_DIR, "tools", "simplesub.py"),
@@ -177,7 +183,7 @@ linkerscript_cmd = env.Command(
         "--sub", "__FS_START__", "$FS_START",
         "--sub", "__FS_END__", "$FS_END",
         "--sub", "__RAM_LENGTH__", "%dk" % (ram_size // 1024),
-    ]), "Generating linkerscript $BUILD_DIR/memmap_default.ld")
+    ]), "Generating linkerscript $BUILD_DIR/%s" % linkerscript_name)
 )
 
 # if no custom linker script is provided, we use the command that we prepared to generate one.
@@ -185,7 +191,7 @@ if not board.get("build.ldscript", ""):
     # execute fetch filesystem info stored in env to alawys have that info ready
     env["fetch_fs_size"](env)
     env.Depends("$BUILD_DIR/${PROGNAME}.elf", linkerscript_cmd)
-    env.Replace(LDSCRIPT_PATH=os.path.join("$BUILD_DIR", "memmap_default.ld"))
+    env.Replace(LDSCRIPT_PATH=os.path.join("$BUILD_DIR", linkerscript_name))
 
 libs = []
 
