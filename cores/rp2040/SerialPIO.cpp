@@ -91,7 +91,7 @@ void __not_in_flash_func(SerialPIO::_handleIRQ)() {
     if (_rx == NOPIN) {
         return;
     }
-    while ((!pio_sm_is_rx_fifo_empty(_rxPIO, _rxSM)) && ((_writer + 1) % sizeof(_queue) != _reader)) {
+    while (!pio_sm_is_rx_fifo_empty(_rxPIO, _rxSM)) {
         uint32_t decode = _rxPIO->rxf[_rxSM];
         decode >>= 32 - _rxBits;
         uint32_t val = 0;
@@ -114,16 +114,27 @@ void __not_in_flash_func(SerialPIO::_handleIRQ)() {
             }
         }
 
-        _queue[_writer] = val & ((1 << _bits) -  1);
-        asm volatile("" ::: "memory"); // Ensure the queue is written before the written count advances
-        _writer = (_writer + 1) % sizeof(_queue);
+        if ((_writer + 1) % _fifosize != _reader) {
+            _queue[_writer] = val & ((1 << _bits) -  1);
+            asm volatile("" ::: "memory"); // Ensure the queue is written before the written count advances
+            _writer = (_writer + 1) % _fifosize;
+        } else {
+            // TODO: Overflow
+        }
     }
 }
 
-SerialPIO::SerialPIO(pin_size_t tx, pin_size_t rx) {
+SerialPIO::SerialPIO(pin_size_t tx, pin_size_t rx, size_t fifosize) {
     _tx = tx;
     _rx = rx;
+    _fifosize = fifosize;
+    _queue = new uint8_t[_fifosize];
     mutex_init(&_mutex);
+}
+
+SerialPIO::~SerialPIO() {
+    end();
+    delete[] _queue;
 }
 
 void SerialPIO::begin(unsigned long baud, uint16_t config) {
@@ -195,7 +206,7 @@ void SerialPIO::begin(unsigned long baud, uint16_t config) {
         _writer = 0;
         _reader = 0;
 
-        _rxBits = 2 * (_bits + _stop + (_parity != UART_PARITY_NONE ? 1 : 0) + 1);
+        _rxBits = 2 * (_bits + _stop + (_parity != UART_PARITY_NONE ? 1 : 0) + 1) - 1;
         _rxPgm = _getRxProgram(_rxBits);
         int off;
         if (!_rxPgm->prepare(&_rxPIO, &_rxSM, &off)) {
@@ -212,6 +223,9 @@ void SerialPIO::begin(unsigned long baud, uint16_t config) {
         // Put phase divider into OSR w/o using add'l program memory
         pio_sm_put_blocking(_rxPIO, _rxSM, clock_get_hz(clk_sys) / (_baud * 2) - 2);
         pio_sm_exec(_rxPIO, _rxSM, pio_encode_pull(false, false));
+
+        // Join the TX FIFO to the RX one now that we don't need it
+        _rxPIO->sm[_rxSM].shiftctrl |= 0x80000000;
 
         // Enable interrupts on rxfifo
         switch (_rxSM) {
@@ -266,7 +280,7 @@ int SerialPIO::read() {
     while ((now - start) < _timeout) {
         if (_writer != _reader) {
             auto ret = _queue[_reader];
-            _reader = (_reader + 1) % sizeof(_queue);
+            _reader = (_reader + 1) % _fifosize;
             return ret;
         }
         delay(1);
@@ -280,7 +294,7 @@ int SerialPIO::available() {
     if (!_running || !m || (_rx == NOPIN)) {
         return 0;
     }
-    return (_writer - _reader) % sizeof(_queue);
+    return (_writer - _reader) % _fifosize;
 }
 
 int SerialPIO::availableForWrite() {
